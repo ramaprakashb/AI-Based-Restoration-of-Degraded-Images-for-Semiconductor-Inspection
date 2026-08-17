@@ -2,27 +2,38 @@
 SEMICON PS01
 AI-Based Restoration of Degraded Images for Semiconductor Inspection
 
-Standalone test/inference script.
+Standalone Test / Inference Script
+-----------------------------------
 
-Usage:
-    python src/test_model.py \
-        --input-dir path/to/test/images \
-        --output-dir path/to/output
+This script loads the trained SemiconSR model and restores all
+supported test images from an input directory.
+
+Required arguments:
+    --input-dir
+    --output-dir
 
 Example:
     python src/test_model.py \
-        --input-dir data/test/NoisyLR \
+        --input-dir test_images \
         --output-dir restored_test_outputs
 
-The script:
-    1. Loads the trained SemiconSR checkpoint.
-    2. Reads all .npy images from the input directory.
-    3. Applies the project normalization.
-    4. Runs 2× image restoration.
-    5. Saves restored .npy files.
-    6. Saves restored PNG files.
+Expected repository structure:
 
-No Google Drive or Colab dependency is required.
+    project/
+    ├── README.md
+    ├── requirements.txt
+    ├── checkpoints/
+    │   └── best_psnr.pt
+    └── src/
+        └── test_model.py
+
+The script does NOT require:
+    - Google Drive
+    - Google Colab
+    - manual code editing
+
+Official blind test images do not contain GT, therefore this script
+does not calculate PSNR, SSIM, or LPIPS for the blind test set.
 """
 
 from pathlib import Path
@@ -37,43 +48,34 @@ import torch.nn as nn
 
 
 # ============================================================
-# VERIFIED PROJECT CONFIGURATION
+# PROJECT CONFIGURATION
 # ============================================================
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 DEFAULT_CHECKPOINT = (
-    PROJECT_ROOT
-    / "checkpoints"
-    / "best_psnr.pt"
+    PROJECT_ROOT / "checkpoints" / "best_psnr.pt"
 )
 
-DEFAULT_INPUT_DIR = (
-    PROJECT_ROOT
-    / "data"
-    / "test"
-    / "NoisyLR"
-)
-
-DEFAULT_OUTPUT_DIR = (
-    PROJECT_ROOT
-    / "restored_test_outputs"
-)
-
+# Verified from the project validation configuration.
 NORMALIZATION_MEAN = 0.4335362882
 NORMALIZATION_STD = 0.2847866113
 
 EXPECTED_PARAMETERS = 776_705
 
+INPUT_HEIGHT = 128
+INPUT_WIDTH = 128
+
+OUTPUT_HEIGHT = 256
+OUTPUT_WIDTH = 256
+
 
 # ============================================================
-# SEMICONSR ARCHITECTURE
+# SEMICONSR
 # ============================================================
 
 class ResidualBlock(nn.Module):
-    """
-    Residual feature-learning block.
-    """
+    """Residual feature-learning block."""
 
     def __init__(self, channels=64):
         super().__init__()
@@ -95,7 +97,6 @@ class ResidualBlock(nn.Module):
         )
 
     def forward(self, x):
-
         residual = x
 
         x = self.conv1(x)
@@ -107,7 +108,7 @@ class ResidualBlock(nn.Module):
 
 class SemiconSR(nn.Module):
     """
-    Lightweight 2× SEM restoration network.
+    Lightweight SEM image restoration network.
 
     Input:
         1 × 128 × 128
@@ -116,15 +117,11 @@ class SemiconSR(nn.Module):
         1 × 256 × 256
 
     Architecture:
-        3×3 convolution
-        ↓
-        8 residual blocks
-        ↓
-        feature refinement
-        ↓
-        convolution + PixelShuffle ×2
-        ↓
-        reconstruction convolution
+        Feature extraction
+        -> 8 residual blocks
+        -> feature refinement
+        -> learned 2x upsampling
+        -> image reconstruction
     """
 
     def __init__(
@@ -195,15 +192,14 @@ class SemiconSR(nn.Module):
 
 
 # ============================================================
-# PARAMETER COUNT
+# PARAMETER CHECK
 # ============================================================
 
 def count_parameters(model):
-
     return sum(
-        p.numel()
-        for p in model.parameters()
-        if p.requires_grad
+        parameter.numel()
+        for parameter in model.parameters()
+        if parameter.requires_grad
     )
 
 
@@ -211,34 +207,27 @@ def count_parameters(model):
 # CHECKPOINT LOADING
 # ============================================================
 
-def load_model(
-    checkpoint_path,
-    device,
-):
-
-    model = SemiconSR(
-        channels=64,
-        num_blocks=8,
-        scale=2,
-    )
-
-    parameter_count = count_parameters(model)
-
-    if parameter_count != EXPECTED_PARAMETERS:
-        raise RuntimeError(
-            "SemiconSR parameter-count mismatch.\n"
-            f"Expected: {EXPECTED_PARAMETERS:,}\n"
-            f"Found   : {parameter_count:,}"
-        )
+def load_model(checkpoint_path, device):
 
     checkpoint_path = Path(checkpoint_path)
 
     if not checkpoint_path.exists():
         raise FileNotFoundError(
-            f"Checkpoint not found:\n"
+            "\nCheckpoint not found:\n"
             f"{checkpoint_path}\n\n"
-            "Place best_psnr.pt inside the checkpoints "
-            "directory or provide --checkpoint."
+            "Place best_psnr.pt in the repository's "
+            "checkpoints/ directory or use --checkpoint."
+        )
+
+    model = SemiconSR()
+
+    parameter_count = count_parameters(model)
+
+    if parameter_count != EXPECTED_PARAMETERS:
+        raise RuntimeError(
+            "\nArchitecture parameter mismatch.\n"
+            f"Expected : {EXPECTED_PARAMETERS:,}\n"
+            f"Found    : {parameter_count:,}\n"
         )
 
     checkpoint = torch.load(
@@ -246,28 +235,27 @@ def load_model(
         map_location=device,
     )
 
-    if isinstance(checkpoint, dict):
+    if not isinstance(checkpoint, dict):
+        raise RuntimeError(
+            "Unsupported checkpoint format."
+        )
 
-        if "model_state_dict" in checkpoint:
+    if "model_state_dict" in checkpoint:
 
-            state_dict = checkpoint[
-                "model_state_dict"
-            ]
+        state_dict = checkpoint["model_state_dict"]
 
-        elif "state_dict" in checkpoint:
+    elif "state_dict" in checkpoint:
 
-            state_dict = checkpoint[
-                "state_dict"
-            ]
-
-        else:
-
-            state_dict = checkpoint
+        state_dict = checkpoint["state_dict"]
 
     else:
+        raise RuntimeError(
+            "Checkpoint does not contain "
+            "'model_state_dict' or 'state_dict'."
+        )
 
-        state_dict = checkpoint
-
+    # Strict loading is intentional.
+    # It prevents silently using an incompatible model.
     model.load_state_dict(
         state_dict,
         strict=True,
@@ -283,7 +271,7 @@ def load_model(
 # INPUT LOADING
 # ============================================================
 
-def load_input(path):
+def load_npy_image(path):
 
     image = np.load(path)
 
@@ -292,58 +280,139 @@ def load_input(path):
         dtype=np.float32,
     )
 
+    # Allow a single-channel array saved as
+    # (1, H, W) or (H, W).
+    if image.ndim == 3:
+
+        if image.shape[0] == 1:
+            image = image[0]
+
+        elif image.shape[-1] == 1:
+            image = image[..., 0]
+
+        else:
+            raise ValueError(
+                f"Unsupported image shape "
+                f"{image.shape}: {path}"
+            )
+
     if image.ndim != 2:
         raise ValueError(
-            f"Expected 2D grayscale image: {path}\n"
-            f"Received shape: {image.shape}"
+            f"Expected grayscale 2D image, "
+            f"received {image.shape}: {path}"
         )
 
-    if image.shape != (128, 128):
+    if image.shape != (
+        INPUT_HEIGHT,
+        INPUT_WIDTH,
+    ):
         raise ValueError(
-            f"Expected input shape (128, 128): {path}\n"
-            f"Received shape: {image.shape}"
+            f"Expected "
+            f"{INPUT_HEIGHT}x{INPUT_WIDTH}, "
+            f"received {image.shape}: {path}"
         )
 
     return image
 
 
 # ============================================================
-# SAVE OUTPUT
+# INFERENCE
 # ============================================================
 
-def save_output(
-    output,
-    npy_path,
-    png_path,
-):
+@torch.inference_mode()
+def restore_image(model, image, device):
 
-    output = np.asarray(
-        output,
-        dtype=np.float32,
+    tensor = torch.from_numpy(
+        image
+    ).unsqueeze(0).unsqueeze(0)
+
+    tensor = tensor.to(
+        device=device,
+        dtype=torch.float32,
     )
 
-    # Save the restored numerical image.
-    np.save(
-        npy_path,
-        output,
+    # Project normalization.
+    tensor = (
+        tensor - NORMALIZATION_MEAN
+    ) / NORMALIZATION_STD
+
+    restored = model(tensor)
+
+    if restored.shape[-2:] != (
+        OUTPUT_HEIGHT,
+        OUTPUT_WIDTH,
+    ):
+        raise RuntimeError(
+            "Unexpected model output size: "
+            f"{tuple(restored.shape)}"
+        )
+
+    # Return from normalized space.
+    restored = (
+        restored * NORMALIZATION_STD
+        + NORMALIZATION_MEAN
     )
 
-    # Convert to displayable 8-bit grayscale PNG.
-    display = np.clip(
-        output,
+    restored = restored.squeeze(
+        0
+    ).squeeze(
+        0
+    )
+
+    restored = restored.detach().cpu().numpy()
+
+    restored = np.clip(
+        restored,
         0.0,
         1.0,
     )
 
-    display = (
-        display * 255.0
+    return restored.astype(np.float32)
+
+
+# ============================================================
+# OUTPUT SAVING
+# ============================================================
+
+def save_outputs(
+    restored,
+    output_dir,
+    filename,
+):
+
+    npy_dir = output_dir / "npy"
+    png_dir = output_dir / "png"
+
+    npy_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    png_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    # Numerical restored image.
+    np.save(
+        npy_dir / filename,
+        restored,
+    )
+
+    # Displayable grayscale PNG.
+    png_image = (
+        np.clip(
+            restored,
+            0.0,
+            1.0,
+        ) * 255.0
     ).round().astype(np.uint8)
 
     Image.fromarray(
-        display,
+        png_image,
         mode="L",
     ).save(
-        png_path
+        png_dir / f"{Path(filename).stem}.png"
     )
 
 
@@ -355,8 +424,7 @@ def main():
 
     parser = argparse.ArgumentParser(
         description=(
-            "Run SemiconSR inference on a directory "
-            "of 128×128 .npy SEM images."
+            "Standalone SemiconSR test inference."
         )
     )
 
@@ -374,7 +442,7 @@ def main():
         type=Path,
         required=True,
         help=(
-            "Directory where restored outputs "
+            "Directory where restored images "
             "will be written."
         ),
     )
@@ -384,51 +452,42 @@ def main():
         type=Path,
         default=DEFAULT_CHECKPOINT,
         help=(
-            "Path to trained .pt checkpoint."
+            "Path to trained best_psnr.pt. "
+            "Default: checkpoints/best_psnr.pt"
         ),
     )
 
     args = parser.parse_args()
 
-    input_dir = args.input_dir
-    output_dir = args.output_dir
+    # --------------------------------------------------------
+    # Validate input directory
+    # --------------------------------------------------------
 
-    if not input_dir.exists():
+    if not args.input_dir.exists():
         raise FileNotFoundError(
-            f"Input directory not found:\n{input_dir}"
+            f"Input directory not found:\n"
+            f"{args.input_dir}"
         )
 
-    files = sorted(
-        input_dir.glob("*.npy")
+    if not args.input_dir.is_dir():
+        raise NotADirectoryError(
+            f"Input path is not a directory:\n"
+            f"{args.input_dir}"
+        )
+
+    input_files = sorted(
+        args.input_dir.glob("*.npy")
     )
 
-    if not files:
+    if not input_files:
         raise RuntimeError(
-            f"No .npy files found in:\n{input_dir}"
+            "No .npy images were found in:\n"
+            f"{args.input_dir}"
         )
 
-    output_dir.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    npy_output_dir = (
-        output_dir / "npy"
-    )
-
-    png_output_dir = (
-        output_dir / "png"
-    )
-
-    npy_output_dir.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    png_output_dir.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    # --------------------------------------------------------
+    # Device
+    # --------------------------------------------------------
 
     device = torch.device(
         "cuda"
@@ -436,34 +495,50 @@ def main():
         else "cpu"
     )
 
-    print("=" * 70)
-    print("SEMICON PS01 — TEST INFERENCE")
-    print("=" * 70)
+    # --------------------------------------------------------
+    # Header
+    # --------------------------------------------------------
 
-    print(f"Input directory  : {input_dir}")
-    print(f"Output directory : {output_dir}")
-    print(f"Checkpoint       : {args.checkpoint}")
-    print(f"Device            : {device}")
-
-    if torch.cuda.is_available():
-
-        print(
-            "GPU               : "
-            + torch.cuda.get_device_name(0)
-        )
+    print("=" * 72)
+    print(
+        "SEMICON PS01 — STANDALONE TEST INFERENCE"
+    )
+    print("=" * 72)
 
     print(
-        f"Test images       : {len(files)}"
+        f"Input directory : {args.input_dir}"
     )
 
     print(
-        f"Normalization mean: "
-        f"{NORMALIZATION_MEAN}"
+        f"Output directory: {args.output_dir}"
     )
 
     print(
-        f"Normalization std : "
-        f"{NORMALIZATION_STD}"
+        f"Checkpoint      : {args.checkpoint}"
+    )
+
+    print(
+        f"Device          : {device}"
+    )
+
+    print(
+        f"Input size      : "
+        f"{INPUT_HEIGHT} × {INPUT_WIDTH}"
+    )
+
+    print(
+        f"Output size     : "
+        f"{OUTPUT_HEIGHT} × {OUTPUT_WIDTH}"
+    )
+
+    print(
+        f"Test images     : {len(input_files)}"
+    )
+
+    print(
+        f"Normalization    : "
+        f"mean={NORMALIZATION_MEAN}, "
+        f"std={NORMALIZATION_STD}"
     )
 
     # --------------------------------------------------------
@@ -476,168 +551,142 @@ def main():
     )
 
     print(
-        f"Model parameters  : "
+        f"Parameters      : "
         f"{count_parameters(model):,}"
     )
 
-    if isinstance(checkpoint, dict):
+    if "epoch" in checkpoint:
+        print(
+            f"Checkpoint epoch: "
+            f"{checkpoint['epoch']}"
+        )
 
-        if "epoch" in checkpoint:
+    if "val_psnr" in checkpoint:
+        print(
+            f"Checkpoint PSNR : "
+            f"{checkpoint['val_psnr']}"
+        )
 
-            print(
-                f"Checkpoint epoch  : "
-                f"{checkpoint['epoch']}"
-            )
+    if "val_ssim" in checkpoint:
+        print(
+            f"Checkpoint SSIM : "
+            f"{checkpoint['val_ssim']}"
+        )
 
-        if "val_psnr" in checkpoint:
-
-            print(
-                f"Checkpoint PSNR   : "
-                f"{checkpoint['val_psnr']}"
-            )
-
-        if "val_ssim" in checkpoint:
-
-            print(
-                f"Checkpoint SSIM   : "
-                f"{checkpoint['val_ssim']}"
-            )
-
-    print("=" * 70)
+    print("=" * 72)
 
     # --------------------------------------------------------
-    # Inference
+    # Output directory
     # --------------------------------------------------------
 
-    start_time = time.time()
+    args.output_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
-    with torch.inference_mode():
+    # --------------------------------------------------------
+    # Run inference
+    # --------------------------------------------------------
 
-        for index, path in enumerate(
-            files,
-            start=1,
+    start_time = time.perf_counter()
+
+    for index, input_path in enumerate(
+        input_files,
+        start=1,
+    ):
+
+        image = load_npy_image(
+            input_path
+        )
+
+        restored = restore_image(
+            model,
+            image,
+            device,
+        )
+
+        save_outputs(
+            restored,
+            args.output_dir,
+            input_path.name,
+        )
+
+        if (
+            index == 1
+            or index % 25 == 0
+            or index == len(input_files)
         ):
 
-            image = load_input(path)
-
-            tensor = torch.from_numpy(
-                image
-            ).unsqueeze(0).unsqueeze(0)
-
-            tensor = tensor.to(
-                device,
-                dtype=torch.float32,
+            elapsed = (
+                time.perf_counter()
+                - start_time
             )
 
-            # Project normalization.
-            tensor = (
-                tensor - NORMALIZATION_MEAN
-            ) / NORMALIZATION_STD
-
-            restored = model(
-                tensor
+            speed = (
+                index / elapsed
+                if elapsed > 0
+                else 0.0
             )
 
-            restored = restored.squeeze(
-                0
-            ).squeeze(0)
-
-            restored = restored.detach().cpu()
-
-            # The model output represents the
-            # normalized reconstruction space.
-            #
-            # Convert back to image space.
-            restored = (
-                restored * NORMALIZATION_STD
-                + NORMALIZATION_MEAN
+            print(
+                f"[{index:04d}/"
+                f"{len(input_files):04d}] "
+                f"{input_path.name} | "
+                f"{speed:.2f} images/sec"
             )
 
-            restored = restored.clamp(
-                0.0,
-                1.0,
-            )
+    elapsed = (
+        time.perf_counter()
+        - start_time
+    )
 
-            restored = restored.numpy()
+    speed = (
+        len(input_files) / elapsed
+        if elapsed > 0
+        else 0.0
+    )
 
-            npy_path = (
-                npy_output_dir
-                / path.name
-            )
+    # --------------------------------------------------------
+    # Final report
+    # --------------------------------------------------------
 
-            png_path = (
-                png_output_dir
-                / f"{path.stem}.png"
-            )
-
-            save_output(
-                restored,
-                npy_path,
-                png_path,
-            )
-
-            if (
-                index == 1
-                or index % 25 == 0
-                or index == len(files)
-            ):
-
-                elapsed = (
-                    time.time()
-                    - start_time
-                )
-
-                speed = (
-                    index / elapsed
-                    if elapsed > 0
-                    else 0
-                )
-
-                print(
-                    f"[{index:04d}/"
-                    f"{len(files):04d}] "
-                    f"{path.name} | "
-                    f"{speed:.2f} img/s"
-                )
-
-    elapsed = time.time() - start_time
-
-    print("\n" + "=" * 70)
-    print("TEST INFERENCE COMPLETE")
-    print("=" * 70)
+    print("\n" + "=" * 72)
+    print("INFERENCE COMPLETE")
+    print("=" * 72)
 
     print(
-        f"Images processed : {len(files)}"
+        f"Images processed : "
+        f"{len(input_files)}"
     )
 
     print(
         f"Total time       : "
-        f"{elapsed:.2f} seconds"
+        f"{elapsed:.3f} seconds"
     )
 
     print(
         f"Speed            : "
-        f"{len(files) / max(elapsed, 1e-9):.2f} img/s"
+        f"{speed:.2f} images/sec"
     )
 
     print(
-        f"Restored NPY     : "
-        f"{npy_output_dir}"
+        f"NPY outputs      : "
+        f"{args.output_dir / 'npy'}"
     )
 
     print(
-        f"Restored PNG     : "
-        f"{png_output_dir}"
+        f"PNG outputs      : "
+        f"{args.output_dir / 'png'}"
     )
 
-    print("\nNOTE:")
+    print("\nMetric note:")
     print(
-        "PSNR/SSIM/LPIPS are not calculated here "
-        "because the official blind test set may "
-        "not contain ground-truth images."
+        "The official blind test set has no ground-truth "
+        "reference images. PSNR, SSIM and LPIPS are "
+        "therefore not calculated by this inference script."
     )
 
-    print("=" * 70)
+    print("=" * 72)
 
 
 if __name__ == "__main__":
