@@ -9,9 +9,7 @@ The final SemiconSR model was evaluated on a fixed 640-image validation set cont
 | Mean PSNR | 28.3130 dB |
 | Mean SSIM | 0.7673 |
 | Mean LPIPS | 0.3008 |
-| Median PSNR | 27.947 dB |
-| Median SSIM | 0.8005 |
-| Median LPIPS | 0.2597 |
+
 
 ## Model
 
