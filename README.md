@@ -1,16 +1,23 @@
 # AI-Based Restoration of Degraded Images for Semiconductor Inspection
 
+
 ## Overview
+
 
 Semiconductor inspection systems rely on high-quality microscopy images to identify defects, structural irregularities, and manufacturing variations. Noise, blur, resolution loss, and intensity degradation can reduce the visibility of critical features and affect inspection reliability.
 
+
 This project proposes a lightweight deep-learning image restoration system that reconstructs high-resolution SEM images from degraded low-resolution inputs while preserving important structural details.
+
 
 ---
 
+
 ## Problem Statement
 
+
 SEM inspection images can suffer from:
+
 
 - Speckle and acquisition noise
 - Loss of fine structural details
@@ -18,29 +25,42 @@ SEM inspection images can suffer from:
 - Blur and edge degradation
 - Brightness and contrast variations
 
+
 These degradations can make small semiconductor defects and microscopic structures difficult to distinguish.
+
 
 Traditional interpolation methods can increase image size but cannot effectively recover information lost during image degradation.
 
+
 ---
+
 
 ## Proposed Solution
 
+
 The proposed system uses a lightweight convolutional neural network to learn the mapping between degraded low-resolution SEM images and their corresponding high-resolution ground-truth images.
+
 
 **Degraded SEM Image → Normalization → AI Restoration & 2× Super-Resolution → Restored High-Resolution SEM Image**
 
+
 The model takes a **128 × 128 grayscale SEM image** and generates a **256 × 256 restored image**.
+
 
 The training objective combines pixel-level reconstruction, structural preservation, edge preservation, and sharpness-aware learning to reduce noise and excessive smoothing while retaining important image details.
 
+
 ---
+
 
 # Model Architecture
 
+
 ## Architecture Overview
 
+
 The restoration network consists of five main stages:
+
 
 1. Feature extraction
 2. Residual feature learning
@@ -48,13 +68,18 @@ The restoration network consists of five main stages:
 4. Learned 2× upsampling
 5. High-resolution image reconstruction
 
+
 The architecture is designed to improve spatial resolution while preserving important SEM structures and fine details.
+
 
 ---
 
+
 ## 1. Feature Extraction
 
+
 A 3 × 3 convolution converts the single-channel SEM input into **64 feature channels**.
+
 
 ```text
 1 × 128 × 128
@@ -63,7 +88,7 @@ A 3 × 3 convolution converts the single-channel SEM input into **64 feature cha
       ↓
 64 × 128 × 128
 
-## This stage extracts local information such as:
+This stage extracts local information such as:
 
 Edges
 Intensity transitions
@@ -377,7 +402,25 @@ Google Colab
 NVIDIA Tesla T4 GPU
 CUDA acceleration
 Automatic Mixed Precision for efficient training and inference
-
+Repository Structure
+AI-Based-Restoration-of-Degraded-Images-for-Semiconductor-Inspection/
+│
+├── README.md
+├── requirements.txt
+│
+├── src/
+│   ├── train_model.py
+│   ├── validate_model.py
+│   ├── test_model.py
+│   └── evaluate_metrics.py
+│
+├── models/
+│   ├── .gitkeep
+│   └── README.md
+│
+└── results/
+    ├── .gitkeep
+    └── README.md
 Installation
 
 Clone the repository:
