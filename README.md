@@ -1,237 +1,317 @@
-# AI-Based Restoration of Degraded Images for Semiconductor Inspection
+AI-Based Restoration of Degraded Images for Semiconductor Inspection
+Overview
 
-## Overview
+Semiconductor inspection systems rely on high-quality microscopy images to identify defects, structural irregularities, and manufacturing variations. Noise, resolution loss, and signal degradation can reduce the visibility of critical features and affect inspection reliability.
 
-Semiconductor inspection requires high-quality microscopic images to identify defects and verify fine structures. Noise, blur, and resolution loss can hide important details and reduce inspection accuracy.
+This project proposes a lightweight deep-learning image restoration system that reconstructs high-resolution SEM images from degraded low-resolution inputs while preserving important structural details.
 
-This project develops an **AI-based image restoration and 2× super-resolution system** that converts degraded low-resolution SEM images into clearer, higher-resolution images while preserving important structural details.
+Problem Statement
 
-## Problem Statement
+SEM inspection images can suffer from:
 
-Microscopic semiconductor inspection images can suffer from:
+Speckle and signal-dependent noise
+Loss of fine structural details
+Reduced spatial resolution
+Blur and edge degradation
+Intensity and contrast variations
 
-* Speckle and acquisition noise
-* Loss of fine structural details
-* Blur and reduced spatial resolution
-* Brightness and contrast degradation
+These degradations can make small semiconductor defects difficult to identify accurately.
 
-These degradations can make small defects and semiconductor structures difficult to distinguish.
+Traditional interpolation methods can increase image size but cannot effectively recover information lost during image degradation.
 
-## Proposed Solution
+Proposed Solution
 
-The proposed system uses a lightweight deep-learning restoration network to learn the mapping between degraded low-resolution SEM images and high-quality ground-truth images.
+The proposed system uses a lightweight convolutional neural network to learn the mapping between degraded low-resolution SEM images and their corresponding high-resolution ground-truth images.
 
-**Degraded SEM Image → Normalization → AI Restoration & 2× Super-Resolution → Contrast/Sharpness Refinement → Restored Image**
+Noisy Low-Resolution SEM → Feature Extraction → Residual Feature Learning → 2× Learned Upsampling → Image Reconstruction → Restored SEM Image
 
-The model takes **128×128 grayscale images** and generates **256×256 restored images**.
+The model is trained using reconstruction, structural, edge, and sharpness-aware objectives to improve image fidelity while reducing excessive smoothing.
 
-## AI Model Architecture
+Model Architecture
+Architecture Overview
 
-The restoration model used in this project is **SemiconSR**, a lightweight convolutional neural network developed for semiconductor image restoration and 2× super-resolution.
+The restoration network consists of five major stages:
 
-```text
-Noisy Low-Resolution SEM Image
+Feature extraction
+Residual feature learning
+Feature refinement
+Learned 2× upsampling
+High-resolution image reconstruction
+
+This architecture is designed to improve resolution while retaining important SEM image structures and fine details.
+
+1. Feature Extraction
+
+A 3 × 3 convolution converts the single-channel SEM input into 64 feature channels.
+
+1 × 128 × 128
+      ↓
+3 × 3 Conv2D
+      ↓
+64 × 128 × 128
+
+This stage extracts local information such as edges, intensity transitions, surface patterns, and structural features.
+
+2. Residual Feature Learning
+
+The extracted features pass through 8 residual blocks.
+
+Each residual block uses convolutional feature transformation together with a skip connection. The skip connection allows useful information from earlier layers to pass forward while the residual path learns additional degraded or missing image information.
+
+This helps the network recover structural details without unnecessarily modifying useful input features.
+
+Input Features
+      │
+      ├──────────────────┐
+      ▼                  │
+   Conv2D                │
+      ↓                  │
+    ReLU                 │
+      ↓                  │
+   Conv2D                │
+      │                  │
+      └────── Add ◄──────┘
+             │
+             ▼
+       Refined Features
+
+The complete feature representation passes through 8 such residual blocks.
+
+3. Feature Refinement
+
+After residual learning, another 3 × 3 convolution processes the refined feature representation.
+
+64 Feature Channels
+        ↓
+     Conv2D
+        ↓
+64 Refined Feature Channels
+
+This prepares the learned features for the resolution enhancement stage.
+
+4. Learned 2× Upsampling
+
+The network performs learned upsampling using a convolution followed by PixelShuffle.
+
+The convolution produces the feature channels required for PixelShuffle, which rearranges them spatially to increase the image resolution.
+
+128 × 128
+    ↓
+Conv2D
+    ↓
+PixelShuffle ×2
+    ↓
+256 × 256
+
+This provides learned 2× upsampling rather than simply enlarging the image using conventional interpolation.
+
+5. Image Reconstruction
+
+The final convolution converts the high-resolution feature representation into a single-channel grayscale SEM image.
+
+64 Feature Channels
+        ↓
+     3 × 3 Conv2D
+        ↓
+1 × 256 × 256
+
+The resulting image is the restored high-resolution SEM image.
+
+SemiconSR
+
+The complete lightweight restoration architecture described above is referred to in this project as SemiconSR.
+
+SemiconSR is designed for SEM image restoration and 2× super-resolution, combining convolutional feature extraction, residual learning, and efficient learned upsampling.
+
+Architecture Flow
+Degraded Low-Resolution SEM
           │
           ▼
-     Feature Extraction
-        Conv2D
+     3 × 3 Conv2D
+        1 → 64
           │
           ▼
-   Residual Learning
-     8 Residual Blocks
+   8 Residual Blocks
+          │
+          ▼
+     3 × 3 Conv2D
+        64 → 64
           │
           ▼
       Upsampling
-     PixelShuffle 2×
+   Conv2D + PixelShuffle
           │
           ▼
-      Reconstruction
-        Conv2D
+      2× Resolution
+  128 × 128 → 256 × 256
           │
           ▼
-Restored High-Resolution SEM Image
-```
+     3 × 3 Conv2D
+        64 → 1
+          │
+          ▼
+Restored High-Resolution SEM
+Model Specifications
+Specification	Value
+Architecture	SemiconSR
+Input	128 × 128 × 1
+Output	256 × 256 × 1
+Upscaling	2×
+Feature Channels	64
+Residual Blocks	8
+Activation	ReLU
+Upsampling	PixelShuffle
+Total Parameters	776,705
+Training Methodology
 
-### Model Characteristics
+The model is trained using paired degraded low-resolution SEM images and their corresponding high-resolution ground-truth images.
 
-* Input: **1 × 128 × 128 grayscale image**
-* Output: **1 × 256 × 256 grayscale image**
-* Super-resolution factor: **2×**
-* Parameters: **776,705**
-* Framework: **PyTorch**
-* GPU acceleration: **CUDA**
-* Mixed-precision training: **Automatic Mixed Precision (AMP)**
+NoisyLR Image
+      │
+      ▼
+   SemiconSR
+      │
+      ▼
+AI Restored Image
+      │
+      ├───────────────┐
+      │               │
+      ▼               ▼
+    PSNR             SSIM
+      │               │
+      └────── GT ─────┘
 
-## Image Normalization
+The dataset contains:
 
-The degraded images are normalized using statistical values calculated from the training dataset.
+3,200 NoisyLR images
+3,200 corresponding GT images
 
-Final normalization configuration:
+A fixed dataset split is used:
 
-* Mean: **0.4335362882**
-* Standard deviation: **0.2847866113**
+2,560 training images
+640 validation images
+No train-validation overlap
+Training Configuration
+Parameter	Configuration
+Training Images	2,560
+Validation Images	640
+Input Resolution	128 × 128
+Output Resolution	256 × 256
+Batch Size	16
+Training Epochs	100
+Initial Learning Rate	0.0001
+Optimizer	Adam
+Mixed Precision	AMP
+Model Parameters	776,705
+Input Normalization
 
-This provides a consistent input distribution for the restoration network while preserving the original image information during reconstruction.
+The NoisyLR inputs use the audited training-set statistics:
 
-## Training Methodology
+Mean = 0.4335362882
+Std  = 0.2847866113
 
-The model was trained using a fixed paired dataset containing:
+The same normalization is used during validation and model inference.
 
-* Total images: **3,200**
-* Training images: **2,560**
-* Validation images: **640**
-* Training/validation overlap: **0**
+Training Objective
 
-The training objective combines multiple losses to improve reconstruction quality and structural preservation:
+The training objective combines multiple loss components to balance reconstruction accuracy, structural preservation, and detail recovery.
 
-* **Charbonnier Loss** — robust pixel-level reconstruction
-* **SSIM Loss** — structural similarity preservation
-* **Edge Loss** — fine-edge and boundary preservation
-* **Sharpness Loss** — reduction of excessive smoothing
+Charbonnier Loss
 
-The final controlled training configuration used **100 epochs** with a **batch size of 16**.
+Provides robust pixel-level reconstruction and reduces sensitivity to individual noisy pixels.
 
-## Image Restoration Pipeline
+SSIM Loss
 
-```text
-Degraded / Noisy SEM Image
-             │
-             ▼
-   Training-Set Normalization
-             │
-             ▼
-       SemiconSR Network
-             │
-             ├── Feature Extraction
-             ├── Residual Learning
-             ├── Detail Reconstruction
-             └── 2× Upsampling
-             │
-             ▼
-      256 × 256 Restoration
-             │
-             ▼
-   Contrast & Sharpness Refinement
-             │
-             ▼
-      Final Restored SEM Image
-```
+Encourages preservation of structural similarity between the restored image and the ground-truth image.
 
-## Evaluation Metrics
+Edge Loss
 
-The model was evaluated on the fixed **640-image validation set** using three metrics:
+Encourages recovery of important image boundaries and structural transitions.
 
-* **PSNR (Peak Signal-to-Noise Ratio)** — measures pixel-level reconstruction quality. Higher is better.
-* **SSIM (Structural Similarity Index)** — measures preservation of structural information. Higher is better.
-* **LPIPS (Learned Perceptual Image Patch Similarity)** — measures perceptual similarity between the restored image and ground truth. Lower is better.
+Sharpness Loss
 
-### Final Validation Results
+Encourages preservation of high-frequency information and helps reduce excessive smoothing.
 
-| Metric            |        Result |
-| ----------------- | ------------: |
-| Validation Images |       **640** |
-| Mean PSNR         | **28.313 dB** |
-| Mean SSIM         |    **0.7673** |
-| Mean LPIPS        |    **0.3008** |
+The combined objective allows the model to optimize both numerical reconstruction quality and important visual structures.
 
-These values were calculated against the corresponding ground-truth images from the validation dataset.
+Validation Evaluation
 
-## Blind Test Evaluation
+The final model was evaluated on the fixed 640-image validation set.
 
-The official test set contained **400 degraded low-resolution images** without corresponding ground-truth images.
+Three complementary metrics were used:
 
-Therefore:
+PSNR
 
-* All **400 test images** were processed by the trained AI model.
-* Restored `.npy` outputs were generated.
-* Restored PNG images were generated for visualization.
-* Comparison images were generated between the noisy input and AI-restored output.
-* PSNR and SSIM were **not calculated for the blind test set** because matching ground-truth images were unavailable.
+Measures pixel-level reconstruction fidelity.
 
-This prevents unsupported or fabricated quantitative results.
+Higher PSNR is better.
 
-## Visual Quality Considerations
+SSIM
 
-The restoration approach focuses on:
+Measures structural similarity between the restored image and ground truth.
 
-**Noise Reduction:** Suppresses unwanted acquisition noise while preserving useful structures.
+Higher SSIM is better.
 
-**Deblurring:** Reconstructs sharper boundaries and microscopic features from degraded inputs.
+LPIPS
 
-**Super-Resolution:** Enhances spatial resolution from 128×128 to 256×256.
+Measures perceptual similarity using deep visual features.
 
-**Contrast Preservation:** Maintains meaningful intensity differences and reduces washed-out appearance.
+Lower LPIPS is better.
 
-**Sharpness Preservation:** Uses edge-aware and sharpness-aware objectives to reduce excessive smoothing.
+Final Validation Results
+Metric	Mean Result
+PSNR	28.3130 dB
+SSIM	0.7673
+LPIPS	0.3008
 
-## Technology Stack
+These values were calculated by comparing the AI-restored validation images directly against their corresponding ground-truth images.
 
-### Software
+No contrast correction or sharpening was applied during this quantitative validation evaluation.
 
-* Python
-* PyTorch
-* NumPy
-* OpenCV
-* Pillow
-* scikit-image
-* LPIPS
-* Google Colab
-* CUDA
+Official Test Set
 
-### Compute Platform
+The official test set contains 400 NoisyLR images.
 
-* NVIDIA Tesla T4 GPU
-* CUDA acceleration
-* Automatic Mixed Precision for efficient training and inference
+The supplied test set does not contain corresponding ground-truth images. Therefore, quantitative PSNR, SSIM, and LPIPS values cannot be legitimately calculated for these official test images.
 
-## Repository Structure
+The trained model is used to perform blind inference and generate restored high-resolution SEM images.
 
-```text
-AI-Based-Restoration-of-Degraded-Images-for-Semiconductor-Inspection/
-│
-├── src/
-│   ├── training/
-│   ├── validation/
-│   └── testing/
-│
-├── models/
-│   └── model configuration / checkpoint information
-│
-├── results/
-│   ├── comparison_images/
-│   └── metrics/
-│
-└── README.md
-```
+Official Test NoisyLR
+          │
+          ▼
+       SemiconSR
+          │
+          ▼
+AI Restored 256 × 256 SEM
+Quantitative vs Qualitative Evaluation
 
-## Applications
+The validation set is used for quantitative evaluation because ground-truth images are available.
 
-The proposed solution can support:
+The official test set is used for blind inference and qualitative inspection because ground-truth images are not provided.
 
-* Semiconductor wafer inspection
-* SEM image enhancement
-* Microscopic defect analysis
-* Low-resolution inspection-image restoration
-* Automated visual inspection
-* AI-assisted semiconductor quality control
+Any optional contrast or sharpness adjustment used for visualization of blind-test outputs is treated separately from the reported quantitative validation metrics.
 
-## Key Advantages
-
-1. **Lightweight architecture** with only 776,705 parameters.
-2. **2× resolution enhancement** from 128×128 to 256×256.
-3. **Structure-aware restoration** using SSIM and edge-based objectives.
-4. **Sharpness-aware reconstruction** to reduce excessive smoothing.
-5. **Multi-metric evaluation** using PSNR, SSIM, and LPIPS.
-6. **Blind-test compatibility** for degraded images where ground truth is unavailable.
-
-## Reproducibility
-
-The project uses a fixed **2,560/640 training-validation split** and fixed training-set normalization statistics to maintain consistent and comparable experiments.
-
-The repository contains the implementation and evaluation scripts required to reproduce the restoration workflow without exposing the original dataset or unnecessarily large training artifacts.
-
-## Conclusion
-
-This project demonstrates an AI-based approach for restoring degraded semiconductor inspection images through **noise reduction, structural reconstruction, deblurring, and 2× super-resolution**.
-
-The final validation results demonstrate measurable image reconstruction quality while maintaining a lightweight model suitable for further optimization and deployment in semiconductor inspection workflows.
+Technologies Used
+Hardware
+NVIDIA Tesla T4 GPU
+Google Colab
+Google Drive
+Software
+Python
+PyTorch
+Torchvision
+NumPy
+OpenCV
+Pillow
+scikit-image
+Pandas
+LPIPS
+Matplotlib
+Deep Learning Techniques
+Convolutional Neural Networks
+Residual Learning
+2× Super-Resolution
+PixelShuffle Upsampling
+Mixed-Precision Training
+Image Restoration
+Perceptual Evaluation
